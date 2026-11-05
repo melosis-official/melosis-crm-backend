@@ -90,8 +90,12 @@ model User {
   updatedAt DateTime @updatedAt
   sessions Session[]
   leads Lead[] @relation("LeadCreator")
+  assignedLeads Lead[] @relation("LeadAssignee")
   activities Activity[]
   tasks Task[]
+  previousAssignments LeadAssignmentHistory[] @relation("PreviousAssignments")
+  receivedAssignments LeadAssignmentHistory[] @relation("NewAssignments")
+  assignedByLogs LeadAssignmentHistory[] @relation("AssignedBy")
 }
 
 model Session {
@@ -124,18 +128,39 @@ model Lead {
   convertedAt DateTime?
   customerNotes String? @db.Text
   createdById String
+  assignedToId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   archivedAt DateTime?
   createdBy User @relation("LeadCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  assignedTo User? @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   activities Activity[]
   tasks Task[]
+  assignmentHistory LeadAssignmentHistory[]
   @@index([status])
   @@index([normalizedMobileNumber])
   @@index([instituteName])
   @@index([createdAt])
   @@index([archivedAt])
   @@index([status, archivedAt])
+  @@index([assignedToId])
+}
+
+model LeadAssignmentHistory {
+  id String @id @default(cuid())
+  leadId String
+  previousUserId String?
+  assignedToUserId String?
+  assignedByUserId String
+  notes String? @db.VarChar(255)
+  createdAt DateTime @default(now())
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  previousUser User? @relation("PreviousAssignments", fields: [previousUserId], references: [id], onDelete: SetNull)
+  assignedToUser User? @relation("NewAssignments", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  assignedByUser User @relation("AssignedBy", fields: [assignedByUserId], references: [id], onDelete: Restrict)
+  @@index([leadId])
+  @@index([assignedToUserId])
+  @@index([createdAt])
 }
 
 model Activity {

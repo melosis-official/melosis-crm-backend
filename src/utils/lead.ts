@@ -4,4 +4,6 @@ export const publicLeadSelect = {
   location: true, instituteType: true, source: true, status: true, hasBeenCalled: true,
   remarks: true, onboardingStatus: true, convertedAt: true, customerNotes: true,
   createdAt: true, updatedAt: true, archivedAt: true,
+  assignedToId: true,
+  assignedTo: { select: { id: true, name: true, email: true } },
 } as const;

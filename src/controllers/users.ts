@@ -5,13 +5,16 @@ import { requireSuperadmin } from '../middleware/permissions';
 import { createUserSchema } from '../validators/schemas';
 import { asyncHandler, HttpError, ok, paramId } from '../utils/http';
 
+import { env } from '../config/env';
+import { sendWelcomeUserEmail } from '../services/email';
+
 export const usersRouter = Router();
 usersRouter.use(requireSuperadmin);
 
 usersRouter.get('/', asyncHandler(async (_req, res) => {
   const users = await prisma.user.findMany({
     where: { isActive: true },
-    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true, updatedAt: true },
     orderBy: { createdAt: 'asc' },
   });
   ok(res, { users });
@@ -26,10 +29,41 @@ usersRouter.post('/', asyncHandler(async (req, res) => {
     parallelism: 1,
   });
   const user = await prisma.user.create({
-    data: { name: input.name, email: input.email, passwordHash, role: 'USER' },
-    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true },
+    data: { name: input.name, email: input.email, passwordHash, role: input.role },
+    select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true, updatedAt: true },
   });
-  ok(res, { user }, 'User created.', 201);
+
+  // Automatically dispatch welcome email with login credentials via SMTP
+  const emailResult = await sendWelcomeUserEmail({
+    name: input.name,
+    email: input.email,
+    temporaryPassword: input.password,
+    websiteUrl: env.FRONTEND_ORIGIN,
+  });
+
+  const responseMessage = emailResult.success
+    ? `User created and credentials email sent to ${user.email}.`
+    : `User created. (Warning: Email delivery failed: ${emailResult.error || 'SMTP delivery error'})`;
+
+  ok(res, { user, emailSent: emailResult.success }, responseMessage, 201);
+}));
+
+usersRouter.post('/test-email', asyncHandler(async (req, res) => {
+  const targetEmail = req.body?.email || req.user?.email;
+  if (!targetEmail) throw new HttpError(400, 'Target email address is required.');
+
+  const result = await sendWelcomeUserEmail({
+    name: req.body?.name || 'Admin Tester',
+    email: targetEmail,
+    temporaryPassword: 'TestTemporaryPassword#123',
+    websiteUrl: env.FRONTEND_ORIGIN,
+  });
+
+  if (!result.success) {
+    throw new HttpError(500, `SMTP Test failed: ${result.error}`);
+  }
+
+  ok(res, { result }, `Test email sent successfully to ${targetEmail}.`);
 }));
 
 usersRouter.delete('/:id', asyncHandler(async (req, res) => {
@@ -52,7 +86,7 @@ usersRouter.delete('/:id', asyncHandler(async (req, res) => {
     const deactivated = await transaction.user.update({
       where: { id },
       data: { isActive: false },
-      select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true, updatedAt: true },
     });
     await transaction.session.deleteMany({ where: { userId: id } });
     return deactivated;
