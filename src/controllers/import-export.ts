@@ -23,12 +23,53 @@ transferRouter.post('/leads/import/confirm',asyncHandler(async(req,res)=>{
   for(const item of rows){const {row,...data}=item;const parsed=leadSchema.safeParse(data);if(!parsed.success){failed.push({row,reasons:parsed.error.issues.map(x=>x.message)});continue;}candidates.push({row,data:parsed.data,normalized:normalizeMobile(parsed.data.mobileNumber)});}
   const existing=candidates.length&&skipDuplicates?await prisma.lead.findMany({where:{normalizedMobileNumber:{in:[...new Set(candidates.map(x=>x.normalized))]},archivedAt:null},select:{normalizedMobileNumber:true},take:2000}):[];const known=new Set(existing.map(x=>x.normalizedMobileNumber));
   for(const {row,data,normalized} of candidates){if(skipDuplicates&&known.has(normalized)){skipped++;continue;}
-    try{await prisma.$transaction(async tx=>{const lead=await tx.lead.create({data:{...data,normalizedMobileNumber:normalized,createdById:req.user!.id}});await tx.activity.create({data:{leadId:lead.id,userId:req.user!.id,type:'OTHER',notes:'Lead imported from CSV.'}});});imported++;if(skipDuplicates)known.add(normalized);}catch{failed.push({row,reasons:['Unable to save this row.']});}
-  }ok(res,{imported,skipped,failed});
+    try {
+      const assignedToId = req.user?.role === 'USER' ? req.user.id : null;
+      await prisma.$transaction(async tx => {
+        const lead = await tx.lead.create({
+          data: { ...data, normalizedMobileNumber: normalized, createdById: req.user!.id, assignedToId }
+        });
+        await tx.activity.create({
+          data: {
+            leadId: lead.id,
+            userId: req.user!.id,
+            type: 'OTHER',
+            notes: assignedToId ? 'Lead imported from CSV (self-assigned).' : 'Lead imported from CSV (unassigned pool).'
+          }
+        });
+      });
+      imported++;
+      if (skipDuplicates) known.add(normalized);
+    } catch {
+      failed.push({ row, reasons: ['Unable to save this row.'] });
+    }
+  }
+  ok(res, { imported, skipped, failed });
 }));
-transferRouter.get('/leads/export',asyncHandler(async(_req,res)=>{
-  const leads=await prisma.lead.findMany({where:{archivedAt:null},orderBy:{createdAt:'desc'},select:{instituteName:true,ownerName:true,mobileNumber:true,email:true,location:true,instituteType:true,source:true,status:true,hasBeenCalled:true,remarks:true,createdAt:true}});
-  const header=['Institute Name','Institute Owner Name','Mobile Number','Email','Location','Institute Type','Lead Source','Lead Status','Called or Not','Remark','Created At'];
-  const lines=[header,...leads.map(l=>[l.instituteName,l.ownerName,l.mobileNumber,l.email,l.location,l.instituteType,l.source,l.status,l.hasBeenCalled?'Yes':'No',l.remarks,l.createdAt.toISOString()])].map(r=>r.map(safeCsvCell).join(','));
-  res.setHeader('Content-Type','text/csv; charset=utf-8');res.setHeader('Content-Disposition','attachment; filename="melosis-leads.csv"');res.send('\uFEFF'+lines.join('\r\n'));
+
+transferRouter.get('/leads/export', asyncHandler(async (req, res) => {
+  const isSuperadmin = req.user?.role === 'SUPERADMIN';
+  const where = isSuperadmin ? { archivedAt: null } : { archivedAt: null, assignedToId: req.user!.id };
+  const leads = await prisma.lead.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    select: {
+      instituteName: true,
+      ownerName: true,
+      mobileNumber: true,
+      email: true,
+      location: true,
+      instituteType: true,
+      source: true,
+      status: true,
+      hasBeenCalled: true,
+      remarks: true,
+      createdAt: true
+    }
+  });
+  const header = ['Institute Name', 'Institute Owner Name', 'Mobile Number', 'Email', 'Location', 'Institute Type', 'Lead Source', 'Lead Status', 'Called or Not', 'Remark', 'Created At'];
+  const lines = [header, ...leads.map(l => [l.instituteName, l.ownerName, l.mobileNumber, l.email, l.location, l.instituteType, l.source, l.status, l.hasBeenCalled ? 'Yes' : 'No', l.remarks, l.createdAt.toISOString()])].map(r => r.map(safeCsvCell).join(','));
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="melosis-leads.csv"');
+  res.send('\uFEFF' + lines.join('\r\n'));
 }));

@@ -22,6 +22,7 @@ export const createUserSchema = z.object({
   name: z.string().trim().min(1).max(120),
   email: z.string().trim().email().max(254).transform(value => value.toLowerCase()),
   password: z.string().min(12).max(200),
+  role: z.enum(['SUPERADMIN', 'USER']).default('USER'),
 });
 export const pagingSchema = z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(500).default(20),
   search: z.string().trim().max(180).optional(), status: z.enum(['NEW','CONTACTED','INTERESTED','DEMO_SCHEDULED','PILOT','CUSTOMER','NOT_INTERESTED','LOST']).optional(),
@@ -29,4 +30,13 @@ export const pagingSchema = z.object({ page: z.coerce.number().int().min(1).defa
   source: z.enum(['COLD_CALLING','REFERRAL','WHATSAPP','WEBSITE','LINKEDIN','WALK_IN','OTHER']).optional(),
   called: z.enum(['true','false']).optional(), sort: z.enum(['asc','desc']).default('desc'),
   includeArchived: z.enum(['true','false']).optional(),
-  archived: z.enum(['true','false']).optional() });
+  archived: z.enum(['true','false']).optional(),
+  assignedToId: z.string().optional(),
+});
+
+export const assignLeadsSchema = z.object({
+  leadIds: z.array(z.string().min(1)).min(1, 'Select at least one lead.'),
+  assignedToUserId: z.string().trim().nullable().optional().transform(v => (v === '' ? null : v)),
+  targetUserId: z.string().trim().nullable().optional().transform(v => (v === '' ? null : v)),
+  notes: z.string().trim().max(255).optional().nullable(),
+});
