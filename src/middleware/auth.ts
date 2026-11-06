@@ -16,4 +16,14 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
   req.sessionId = session.id;
   void prisma.session.update({ where: { id: session.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
   next();
+});export const optionalAuth = asyncHandler(async (req, _res, next) => {
+  const token = req.cookies?.melosis_session;
+  if (typeof token === 'string' && token.length >= 40) {
+    const session = await prisma.session.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: true } });
+    if (session && session.expiresAt > new Date() && session.user.isActive) {
+      req.user = { id: session.user.id, name: session.user.name, email: session.user.email, role: session.user.role };
+      req.sessionId = session.id;
+    }
+  }
+  next();
 });
